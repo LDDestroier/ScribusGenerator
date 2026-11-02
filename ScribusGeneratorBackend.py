@@ -37,6 +37,52 @@ import json
 import re
 import string, math
 
+# Field names for scribus document, it's different between 1.6 and 1.7
+class FIELD:
+    def setFieldNames(version: str):
+        if version.startswith('1.7'):
+            FIELD.DOCUMENT = "Document"
+            FIELD.PAGE = "Page"
+            FIELD.PAGE_COUNT = "PageCount"
+            FIELD.PAGE_NUMBER = "PageNumber"
+            FIELD.PAGE_HEIGHT = "PageHeight"
+            FIELD.VERTICAL_GAP = "GapVertical"
+            FIELD.GROUP_COUNT = "GroupCounter"
+            FIELD.PAGE_OBJECT = "PageObject"
+            FIELD.VERSION = "Version"
+            FIELD.COLOR = "Color"
+            FIELD.BOOK = "PagePositioning"
+            FIELD.PAGEXPOS = "PageXPosition"
+            FIELD.PAGEYPOS = "PageYPosition"
+            FIELD.XPOS = "XPosition"
+            FIELD.YPOS = "YPosition"
+            FIELD.NEXTITEM = "NextItem"
+            FIELD.BACKITEM = "BackItem"
+            FIELD.ITEXT = "Content"
+            FIELD.CHARS = "Chars"
+            FIELD.DOC_CONTRIBUTORS = "DocumentInfoContributors"
+            
+        else:
+            FIELD.DOCUMENT = "DOCUMENT"
+            FIELD.PAGE = "PAGE"
+            FIELD.PAGE_COUNT = "ANZPAGES"
+            FIELD.PAGE_NUMBER = "NUM"
+            FIELD.PAGE_HEIGHT = "PAGEHEIGHT"
+            FIELD.VERTICAL_GAP = "GapVertical"
+            FIELD.GROUP_COUNT = "GROUPC"
+            FIELD.PAGE_OBJECT = "PAGEOBJECT"
+            FIELD.VERSION = "Version"
+            FIELD.COLOR = "COLOR"
+            FIELD.BOOK = "BOOK"
+            FIELD.PAGEXPOS = "PAGEXPOS"
+            FIELD.PAGEYPOS = "PAGEYPOS"
+            FIELD.XPOS = "XPOS"
+            FIELD.YPOS = "YPOS"
+            FIELD.NEXTITEM = "NEXTITEM"
+            FIELD.BACKITEM = "BACKITEM"
+            FIELD.ITEXT = "ITEXT"
+            FIELD.CHARS = "CH"
+            FIELD.DOC_CONTRIBUTORS = "DOCCONTRIB"
 
 class CONST:
     # Constants for general usage
@@ -122,7 +168,9 @@ class ScribusGenerator:
 
         # (3) SLA root element & template file version
         root = tree.getroot()
-        version = root.get('Version')
+        version = root.get("Version")
+        
+        FIELD.setFieldNames(version)
 
         logging.debug('Scribus SLA template file version is %s' % version)
 
@@ -133,11 +181,12 @@ class ScribusGenerator:
             # TODO: as: %s' %serial)
             logging.debug('Saving current ScribusGenerator settings in your source file.')
 
-            document = root.find('DOCUMENT')
+            document = root.find(FIELD.DOCUMENT)
             storage_element = document.find('./JAVA[@NAME="' + CONST.STORAGE_NAME + '"]')
 
             if storage_element is None:
-                color_element = document.find('./COLOR[1]')
+                #color_element = document.find('./COLOR[1]')
+                color_element = document.find('./' + FIELD.COLOR + '[1]')
                 script_position = list(document).index(color_element)
 
                 logging.debug(
@@ -367,7 +416,7 @@ class ScribusGenerator:
                 # Generate output
                 output = self.substitute_data(self.headers,
                     self.encode_scribus_xml(buffer),
-                    ET.tostring(template_element, method='xml').decode().split('\n'),
+                    ET.tostring(template_element, encoding='utf-8', method='xml').decode().split('\n'),
                     CONST.KEEP_TAB_LINEBREAK, index_first_of_batch=index_first_of_batch
                 )
                 
@@ -376,30 +425,30 @@ class ScribusGenerator:
                     # Update DOCUMENT properties on first substitution
                     if index_current == min(records_in_document, data_count):
                         logging.debug('Generating reference content from buffer at #%s' % index_current)
-                        scribus_element= ET.fromstring(output)
-                        document_element = scribus_element.find('DOCUMENT')
-                        pages_count = int(document_element.get('ANZPAGES'))
-                        page_height = float(document_element.get('PAGEHEIGHT'))
-                        vertical_gap = float(document_element.get('GapVertical'))
-                        groups_count = int(document_element.get('GROUPC'))
-                        objects_count = len(scribus_element.findall('.//PAGEOBJECT'))
-                        version = str(scribus_element.get('Version')) #str(document_element.get('DOCDATE'))
+                        scribus_element = ET.fromstring(output)  
+                        document_element = scribus_element.find(FIELD.DOCUMENT)
+                        pages_count = int(document_element.get(FIELD.PAGE_COUNT))
+                        page_height = float(document_element.get(FIELD.PAGE_HEIGHT))
+                        vertical_gap = float(document_element.get(FIELD.VERTICAL_GAP))
+                        groups_count = int(document_element.get(FIELD.GROUP_COUNT))
+                        objects_count = len(scribus_element.findall(".//" + FIELD.PAGE_OBJECT))
+                        version = str(scribus_element.get(FIELD.VERSION)) #str(document_element.get('DOCDATE'))
 
                         logging.debug('Current template has #%s page objects' % objects_count)
 
-                        document_element.set('ANZPAGES',
+                        document_element.set(FIELD.PAGE_COUNT,
                             str(math.ceil(pages_count * data_count // records_in_document))
                         )
 
-                        document_element.set('DOCCONTRIB',
-                            document_element.get('DOCCONTRIB') + CONST.CONTRIB_TEXT
+                        document_element.set(FIELD.DOC_CONTRIBUTORS,
+                            document_element.get(FIELD.DOC_CONTRIBUTORS) + CONST.CONTRIB_TEXT
                         )
 
                     # Append DOCUMENT content
                     logging.debug('Merging content from buffer up to entry index_current #%s' % index_current)
 
                     shifted_elements = self.shift_pages_and_objects(
-                        ET.fromstring(output).find('DOCUMENT'),
+                        ET.fromstring(output).find(FIELD.DOCUMENT),
                         pages_count,
                         page_height,
                         vertical_gap,
@@ -535,7 +584,8 @@ class ScribusGenerator:
         for line in template:
             
             # Skip redundant computations & preserve colors declarations
-            if re.search('%VAR_|' + CONST.NEXT_RECORD, line) == None or re.search('\s*<COLOR\s+', line) != None:
+            #if re.search('%VAR_|' + CONST.NEXT_RECORD, line) == None or re.search('\s*<COLOR\s+', line) != None:
+            if re.search('%VAR_|' + CONST.NEXT_RECORD, line) == None or re.search('\s*<' + FIELD.COLOR + '\s+', line) != None:
                 result = result + line
                 # logging.debug("  keeping intact %s"%line[:30])
                 continue
@@ -590,7 +640,8 @@ class ScribusGenerator:
             # convert \t and \n into scribus <tab/> and <linebreak/>
             if keep_tabs_lf == 1 and re.search('[\t\n]+', line, flags=re.MULTILINE):
                 matches = re.search(
-                    '(<ITEXT.* CH=")([^"]+)(".*/>)', line, flags=re.MULTILINE | re.DOTALL)
+#                   '(<ITEXT.* CH=")([^"]+)(".*/>)', line, flags=re.MULTILINE | re.DOTALL)
+                    '(<' + FIELD.ITEXT + '.* ' + FIELD.CHARS + '=")([^"]+)(".*/>)', line, flags=re.MULTILINE | re.DOTALL)
 
                 if matches:
                     matches_start = matches.group(1)
@@ -638,21 +689,21 @@ class ScribusGenerator:
 
         shifted = []
 
-        for page in document_element.findall('PAGE'):
-            page.set('PAGEYPOS', str(float(page.get('PAGEYPOS')) + vertical_offset))
-            page.set('NUM', str(int(page.get('NUM')) + pages_count))
+        for page in document_element.findall(FIELD.PAGE):
+            page.set(FIELD.PAGEYPOS, str(float(page.get(FIELD.PAGEYPOS)) + vertical_offset))
+            page.set(FIELD.PAGE_NUMBER, str(int(page.get(FIELD.PAGE_NUMBER)) + pages_count))
 
             shifted.append(page)
 
-        for page_object in document_element.findall('PAGEOBJECT'):
-            y_position = page_object.get('YPOS')
+        for page_object in document_element.findall(FIELD.PAGE_OBJECT):
+            y_position = page_object.get(FIELD.YPOS)
 
             if y_position == '':
                 y_position = 0
 
             #logging.debug("original YPOS is %s " % (y_position))
 
-            page_object.set('YPOS', str(float(y_position) + vertical_offset))
+            page_object.set(FIELD.YPOS, str(float(y_position) + vertical_offset))
             page_object.set('OwnPage', str(int(page_object.get('OwnPage')) + pages_count))
 
             # Update ID and links
@@ -661,15 +712,15 @@ class ScribusGenerator:
                 #                    page_object.set('NUMGROUP', str(int(page_object.get('NUMGROUP')) + groups_count * index))
                 # next linked frame by position
 
-                if (page_object.get('NEXTITEM') != None and (str(page_object.get('NEXTITEM')) != "-1")):
-                    page_object.set('NEXTITEM', str(
-                        int(page_object.get('NEXTITEM')) + (objects_count * index))
+                if (page_object.get(FIELD.NEXTITEM) != None and (str(page_object.get(FIELD.NEXTITEM)) != "-1")):
+                    page_object.set(FIELD.NEXTITEM, str(
+                        int(page_object.get(FIELD.NEXTITEM)) + (objects_count * index))
                     )
 
                 # previous linked frame by position
-                if (page_object.get('BACKITEM') != None and (str(page_object.get('BACKITEM')) != "-1")):
-                    page_object.set('BACKITEM', str(
-                        int(page_object.get('BACKITEM')) + (objects_count * index))
+                if (page_object.get(FIELD.BACKITEM) != None and (str(page_object.get(FIELD.BACKITEM)) != "-1")):
+                    page_object.set(FIELD.BACKITEM, str(
+                        int(page_object.get(FIELD.BACKITEM)) + (objects_count * index))
                     )
 
             # Version 1.5 / 1.6
@@ -685,15 +736,15 @@ class ScribusGenerator:
                 )
 
                 # next linked frame by ItemID
-                if (page_object.get('NEXTITEM') != None and (str(page_object.get('NEXTITEM')) != '-1')):
-                    page_object.set('NEXTITEM',
-                        str(objects_count * index) + str(int(page_object.get('NEXTITEM')))[7:]
+                if (page_object.get(FIELD.NEXTITEM) != None and (str(page_object.get(FIELD.NEXTITEM)) != '-1')):
+                    page_object.set(FIELD.NEXTITEM,
+                        str(objects_count * index) + str(int(page_object.get(FIELD.NEXTITEM)))[7:]
                     )
 
                 # previous linked frame by ItemID
-                if (page_object.get('BACKITEM') != None and (str(page_object.get('BACKITEM')) != '-1')):
-                    page_object.set('BACKITEM',
-                        str(objects_count * index) + str(int(page_object.get('BACKITEM')))[7:]
+                if (page_object.get(FIELD.BACKITEM) != None and (str(page_object.get(FIELD.BACKITEM)) != '-1')):
+                    page_object.set(FIELD.BACKITEM,
+                        str(objects_count * index) + str(int(page_object.get(FIELD.BACKITEM)))[7:]
                     )
 
             shifted.append(page_object)
@@ -764,7 +815,7 @@ class ScribusGenerator:
         if (sla_indent):
             from xml.dom import minidom
 
-            xml_string = minidom.parseString(ET.tostring(output_tree.getroot())).toprettyxml(indent="   ")
+            xml_string = minidom.parseString(ET.tostring(output_tree.getroot(), encoding='utf-8')).toprettyxml(indent="    ")
 
             with open(sla_file, 'w', encoding='utf-8') as file:
                 file.write(xml_string)
@@ -784,7 +835,8 @@ class ScribusGenerator:
         #      <ITEXT CH="empty %VAR_empty% variable should not show" FONT="Arial Regular" />
         #   2. remove <ITEXT> with empty @CH and precedings <para/> if any
         #   3. remove any <PAGEOBJECT> that has no <ITEXT> child left
-        empty_xpath = "ITEXT[@CH='']"
+        #empty_xpath = "ITEXT[@CH='']"
+        empty_xpath = FIELD.ITEXT + "[@" + FIELD.CHARS + "='']"
         removal_count = 0
 
         # little obscure because its parent is needed to remove an element, and `ElementTree` has no parent() method.
@@ -796,7 +848,7 @@ class ScribusGenerator:
                 trash = []
 
                 for position, item in enumerate(page_object):
-                    if (item.tag == 'ITEXT') and (item.get('CH') == ''):
+                    if (item.tag == FIELD.ITEXT) and (item.get(FIELD.CHARS) == ''):
                         logging.debug('Cleaning 1 empty ITEXT and preceding linefeed (opt.)')
                         if (CONST.REMOVE_CLEANED_ELEMENT_PREFIX and page_object[position-1].tag == 'para'):
                             trash.append(position - 1)
@@ -811,8 +863,8 @@ class ScribusGenerator:
                 for removed_position in trash:
                     page_object.remove(page_object[removed_position])
 
-                if len(page_object.findall('ITEXT')) == 0:
-                    logging.debug('Cleaning 1 empty PAGEOBJECT')
+                if len(page_object.findall(FIELD.ITEXT)) == 0:
+                    logging.debug('Cleaning 1 empty PageObject')
                     page.remove(page_object)
 
         logging.debug('Removed %d empty texts items' % removal_count)
@@ -879,7 +931,7 @@ class ScribusGenerator:
             tree = ET.parse(self.__dataObject.getScribusSourceFile())
             root = tree.getroot()
 
-            doc = root.find('DOCUMENT')
+            doc = root.find(FIELD.DOCUMENT)
             storage = doc.find('./JAVA[@NAME="' + CONST.STORAGE_NAME + '"]')
 
             return storage.get('SCRIPT')
